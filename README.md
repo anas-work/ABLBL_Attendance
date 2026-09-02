@@ -1,187 +1,311 @@
 # AI Monk — Real-Time Face Recognition & Attendance Monitoring Engine
 
-A production-grade, low-latency, real-time employee identification and security/attendance monitoring system built for **Hybrid Edge-AI Architecture** and **NVIDIA RTX / Jetson GPU Servers** with a modular **React 18 + Vite** frontend.
+[![GitHub](https://img.shields.io/badge/GitHub-anas--work%2FABLBL__Attendance-blue?logo=github)](https://github.com/anas-work/ABLBL_Attendance)
+
+A production-grade, low-latency, real-time employee identification and attendance monitoring system built on a **Hybrid Edge-AI Architecture** with **NVIDIA CUDA GPU** inference, a **React 18 + Vite** web frontend, and a native **Android client** (android_clientv5).
 
 ---
 
 ## 🌟 Key Technical Highlights
 
-### 1. Hybrid Edge-AI Web Architecture
-- **Client-Side WASM Face Detection**: Runs the ultra-compact **Linzaer Ultra-Light 1MB RFB-320 ONNX** model directly inside the client browser via **WebAssembly SIMD** and **WebGL**. Detections take only **8–10 ms** per frame.
-- **Zero Video Bandwidth Streaming**: Client devices (tablets/laptops/phones) do **not** stream continuous heavy video to the server. The client evaluates faces locally and only dispatches high-quality trigger crops when a prominent face is detected.
+### 1. Hybrid Edge-AI Architecture
+- **Client-Side Face Detection**: Runs the ultra-compact **Linzaer Ultra-Light RFB-320 (~1.3 MB)** ONNX model directly inside the browser via **WebAssembly / WebGL** — detections in **8–10 ms** per frame with zero server load.
+- **1/3 Frame Decimation**: Client only runs inference on every 3rd frame. The tracker extrapolates the other 2 frames at native refresh rate — cutting client CPU/GPU load by ~66%.
+- **Zero Video Streaming**: No raw video is sent to the server. Only quality-validated 224×224 JPEG face crops are dispatched.
 
-### 2. Smooth Proximity-Aware Motion Tracker
-- **Generalized Association Tracker**: Combines **IoU (65%)** and **Center-Distance Proximity (35%)** with velocity motion extrapolation $(v_x, v_y)$ and exponential coordinate smoothing ($0.75 \text{det} + 0.25 \text{track}$).
-- **Rock-Solid Motion Persistence**: Glides smoothly at the screen's native refresh rate (**60–120 FPS** on ProMotion displays) without jitter or box tearing during fast head movement, tilts, or walking.
+### 2. Stable Proximity-Aware Motion Tracker
+- **Generalized Association**: Combines **IoU (65%)** + **Center-Distance Proximity (35%)** with velocity extrapolation $(v_x, v_y)$.
+- **Deadzone Jitter Filtering**: Ignores center shifts < 3.5px — prevents box jitter on stationary faces.
+- **Heavy Dimension Smoothing**: 80% previous size / 20% new detection blend — eliminates bounding box size oscillation.
+- **Box Calibration**: Top expanded, bottom trimmed, width expanded both sides — frames the face cleanly without including the chest.
 
-### 3. Strict 120px Recognition Gate & High-Res Snapshots
-- **120px Distance Filter**: Only triggers recognition when a face reaches $\ge 120\text{ px}$, preventing far-field background pedestrians from generating noise.
-- **High-Quality Full-Frame Captures**: Dispatches a $224 \times 224$ face crop for embedding extraction along with a high-resolution annotated full camera frame ($95\%$ JPEG quality) with OpenCV adaptive gamma correction and contrast optimization.
+### 3. Smart Recognition Gate
+- **120px Size Gate**: Only triggers recognition when a face reaches ≥ 120px.
+- **1-Second Settle Delay**: Waits 1 full second after the gate is crossed — lets the person stop moving, dramatically reducing false negatives.
+- **5-Frame Controlled Sampling**: Sends exactly 5 frames at ~600ms intervals within a 3-second window — never floods the API, maximises accuracy.
+- **State Machine**: `WAITING_FOR_SIZE → SETTLING → RECOGNIZING → MATCHED / NOT_RECOGNIZED`
 
-### 4. Deep Face Recognition Pipeline (NVIDIA CUDA)
-- **SCRFD 5-Point Landmark Alignment**: Aligns faces using affine transformation into standard $112 \times 112$ canonical geometry.
-- **AdaFace IR-101 (512-d Embeddings)**: Quality-adaptive feature extraction running on CUDA GPU in **4–6 ms**.
-- **FAISS Vector Index**: Cosine similarity matching ($\ge 0.53$, margin $\ge 0.04$) across 131+ enrolled employee embeddings in **0.027 ms**.
+### 4. Server-Side Recognition Pipeline (NVIDIA CUDA)
+- **SCRFD 5-Point Landmark Alignment**: Affine transformation to 112×112 canonical geometry.
+- **KPRPe + AdaFace IR-101 (512-d)**: Quality-adaptive GPU embedding extraction in **4–6 ms**.
+- **FAISS Flat Index**: Cosine similarity search (threshold ≥ 0.50, margin gate ≥ 0.04) across enrolled embeddings in **< 0.05 ms**.
 
-### 5. 30-Second Cooldown & State Preservation Rule
-- **Initial Check-In (`CHECK_IN`)**: Verified with a solid **GREEN** box and recorded in the database.
-- **Cooldown Window (0–30s)**: Subsequent appearances within 30 seconds retain solid **GREEN** and produce no duplicate attendance entries.
-- **Re-Entry (`RE_ENTRY`)**: Appearances after 30 seconds turn **ORANGE** (`RE-ENTRY: Name [Score%]`) and log a new re-entry event. Matches during the subsequent 30s cooldown **remain ORANGE** without reverting to green.
-- **Instant Mode Switch Bypass**: Switching between **ENTRY MODE** and **EXIT MODE** immediately clears cooldowns, allowing instant checkout (`CHECK_OUT`, Purple) or entry.
+### 5. Entry/Exit State Machine with Cooldowns
+- `CHECK_IN` → **Green** box, recorded on first verified entry.
+- `RE_ENTRY` → **Orange** box, logged after cooldown expires.
+- `CHECK_OUT` → **Purple** box, triggered in EXIT MODE.
+- Mode switch immediately clears cooldowns for instant re-recognition.
 
-### 6. Multi-Device Real-Time Sync & Anti-Caching
-- Strict HTTP anti-caching headers (`Cache-Control: no-cache, no-store`, timestamp salting) ensure all connected supervisor dashboards, guard tablets, and mobile phones update attendance feeds simultaneously in real-time.
+### 6. Android App (android_clientv5)
+- Full UI parity with the web app — same stat cards, filter tabs, activity feed, enroll dialog.
+- **LiteRT 1.4.0** (Google's TFLite successor) — 16KB page-size aligned for Android 15.
+- **CameraX 1.4.0** — fixes `libimage_processing_util_jni.so` alignment.
+- Edge-to-edge / notch-aware layout, transparent status/nav bars.
+- Identical 1/3 decimation, settle delay, and 5-frame sampling logic as the web app.
 
 ---
 
-## 🚀 Quick Setup & Run Guide
+## ⚙️ Prerequisites
 
-### Option A: Run via Docker Compose (Recommended Production Setup)
+| Requirement | Version |
+|---|---|
+| NVIDIA GPU + CUDA | 12.1+ |
+| Docker + Docker Compose | Latest |
+| NVIDIA Container Toolkit | For GPU passthrough |
+| Node.js | 18+ |
+| Python | 3.10+ |
+| Android Studio (for app) | Hedgehog+ |
 
-The system runs in Docker with PostgreSQL and NVIDIA GPU acceleration over HTTPS (Port `9001`):
+---
+
+## 🚀 Quick Setup & Run
+
+### Step 0: Clone & Download the Large Model
 
 ```bash
-# 1. Clone the repository and enter the directory
-git clone https://github.com/your-org/ABLBL_Attendance.git
+git clone https://github.com/anas-work/ABLBL_Attendance.git
 cd ABLBL_Attendance
+```
 
-# 2. Build the React frontend production bundle
+> **⚠️ The AdaFace recognition model is NOT included in the repo** (167MB > GitHub's 100MB limit).
+> Download it separately and place it at `models/kprpe_adaface.onnx`:
+>
+> ```bash
+> # Option 1: Copy from your existing server
+> scp user@your-server:/path/to/kprpe_adaface.onnx models/
+>
+> # Option 2: Download from your shared storage location
+> # (Ask the team for the model file link)
+> ```
+
+### Step 1: Generate SSL Certificates
+
+The system serves over HTTPS (required for browser camera access via `getUserMedia`).
+
+```bash
+mkdir -p config
+openssl req -x509 -newkey rsa:4096 -keyout config/ssl.key \
+  -out config/ssl.crt -days 365 -nodes \
+  -subj "/CN=attendance-server"
+```
+
+### Step 2: Build the React Frontend
+
+```bash
 npm run build
+# This runs: cd frontend && npm install && npm run build
+# Output goes to: frontend/dist/
+```
 
-# 3. Start all services (PostgreSQL + Recognition Engine) with GPU support
+### Step 3: Run via Docker Compose (Recommended)
+
+```bash
+# Start PostgreSQL + Recognition Engine (GPU accelerated, HTTPS on port 9001)
 docker compose up -d
 
-# 4. Access the Live Dashboard:
-# Open https://localhost:9001 or https://<server-ip>:9001 in your browser
-# (Accept the one-time self-signed SSL certificate prompt)
+# View live logs
+docker compose logs -f recognition_engine
+
+# Access the dashboard
+# https://localhost:9001
+# https://<your-server-ip>:9001
+# (Accept the one-time self-signed SSL warning on first load)
 ```
 
 ---
 
-### Option B: Local Development (Without Docker)
+## 🛠️ Local Development (Without Docker)
 
-#### 1. Backend Setup
+### Backend
+
 ```bash
 # Install Python dependencies
 pip3 install -r requirements.txt
 
-# Run backend server with HTTPS
-python3 -m uvicorn src.api.app:app --host 0.0.0.0 --port 9001 --ssl-keyfile config/ssl.key --ssl-certfile config/ssl.crt
+# Set PYTHONPATH and run the FastAPI server with HTTPS
+PYTHONPATH=. python3 -m uvicorn src.api.app:app \
+  --host 0.0.0.0 --port 9001 \
+  --ssl-keyfile config/ssl.key \
+  --ssl-certfile config/ssl.crt
 ```
 
-#### 2. Frontend Development Server (Hot Reloading)
+### Frontend (Hot Reloading)
+
 ```bash
-# Install frontend dependencies
-npm run install:frontend
-
-# Start Vite dev server on port 3000 (proxies API to port 9001)
+cd frontend
+npm install
 npm run dev
+# Vite dev server at http://localhost:3000
+# API calls are proxied to https://localhost:9001
 ```
 
 ---
 
-## 🛠️ Management & CLI Commands
+## 📱 Android App (android_clientv5)
 
-| Task | Command |
-| :--- | :--- |
-| **Rebuild Frontend Bundle** | `npm run build` |
-| **Restart Recognition Container** | `docker compose restart recognition_engine` |
-| **View Live Container Logs** | `docker compose logs -f recognition_engine` |
-| **Stop All Services** | `docker compose down` |
-| **Enroll Employee Gallery (CLI)** | `PYTHONPATH=. python3 scripts/enroll_employees.py` |
-| **Run Latency Benchmark** | `PYTHONPATH=. python3 scripts/benchmark.py` |
-| **Generate PDF Architecture Report** | `python3 scripts/generate_architecture_report_pdf.py` |
+The Android client has full feature parity with the web app.
+
+### Requirements
+- Android Studio Hedgehog or newer
+- Android SDK 35 (Android 15 target)
+- `minSdk = 26` (Android 8.0+)
+
+### Setup
+1. Open `android_clientv5/` in Android Studio
+2. Update the server IP in `app/src/main/java/com/aimonk/attendance/network/ApiService.kt`:
+   ```kotlin
+   private const val BASE_URL = "https://YOUR_SERVER_IP:9001/"
+   ```
+3. Sync Gradle → the app uses **LiteRT 1.4.0** (16KB page-aligned, Android 15 compatible)
+4. Build & run on device or emulator (API 26+)
+
+### Key Features
+- Same detection engine: UltraLight TFLite running on-device via LiteRT + GPU delegate
+- Same pipeline: 1/3 frame decimation, 1s settle delay, 5-frame recognition sampling
+- SSL-trusting OkHttpClient — works with self-signed server certs
+- Edge-to-edge UI with notch / display cutout support
 
 ---
 
-## 📁 Project Architecture & Directory Layout
+## 📁 Project Structure
 
 ```
 ABLBL_Attendance/
-├── docker-compose.yml              # PostgreSQL + Recognition Engine container config
-├── Dockerfile                      # CUDA 12.2 / Ubuntu 22.04 runtime container
-├── package.json                    # Root npm scripts (build, dev, install)
+├── docker-compose.yml              # PostgreSQL + Recognition Engine
+├── Dockerfile                      # CUDA 12.1 / Ubuntu 22.04 runtime
 ├── requirements.txt                # Python backend dependencies
+├── package.json                    # Root npm scripts (build, dev)
 │
 ├── config/
-│   ├── config.yaml                 # System thresholds, FAISS, camera parameters
-│   ├── ssl.crt                     # SSL Certificate for HTTPS WebRTC
-│   └── ssl.key                     # SSL Private Key
+│   ├── config.yaml                 # Thresholds, models, DB, camera config
+│   ├── ssl.crt                     # SSL certificate (not in repo — generate locally)
+│   └── ssl.key                     # SSL private key (not in repo — generate locally)
 │
-├── data/
-│   ├── attendance_captures/        # High-res attendance capture snapshots
-│   └── embeddings/                 # FAISS vector index files
+├── frontend/                       # React 18 + Vite SPA
+│   ├── src/
+│   │   ├── App.jsx                 # State orchestrator & polling loop
+│   │   ├── components/             # Header, VideoPlayer, ActivityFeed, Modals
+│   │   ├── engine/
+│   │   │   ├── UltraLightDetector.js  # ONNX face detector (WASM/WebGL)
+│   │   │   ├── ClientIoUTracker.js    # IoU + Proximity tracker w/ jitter filter
+│   │   │   ├── CropDispatcher.js      # Gate, settle, 5-frame sampling logic
+│   │   │   └── CanvasRenderer.js      # HUD, bounding boxes, ID card popup
+│   │   └── services/api.js         # Anti-cached REST client
+│   └── vite.config.js
 │
-├── Employees_Photo/                # Reference employee enrolled portrait photos
-│
-├── frontend/                       # Modular React 18 + Vite Application
-│   ├── package.json                # React, Vite, ONNX Runtime Web, Lucide dependencies
-│   ├── vite.config.js              # Vite configuration & API proxies
-│   ├── index.html                  # HTML entry point with ONNX WASM loader
-│   ├── dist/                       # Production bundled static SPA
-│   └── src/
-│       ├── main.jsx                # React DOM root
-│       ├── App.jsx                 # App state orchestrator & polling loop
-│       ├── App.css                 # Centralized dark-mode design system
-│       ├── components/
-│       │   ├── Header.jsx          # Top bar, Mode switch (ENTRY/EXIT)
-│       │   ├── VideoPlayer.jsx     # Live WebRTC canvas viewport & loop
-│       │   ├── ActivityFeed.jsx    # Right-side live feed with tabs (ALL/CHECK-IN/CHECK-OUT)
-│       │   ├── ActivityCard.jsx    # Dual-photo card with sub-event pill toggles
-│       │   ├── EmployeeModal.jsx   # Searchable 131+ employee gallery
-│       │   ├── EnrollModal.jsx     # Multi-step employee enrollment modal
-│       │   └── EventDetailModal.jsx# Full-resolution event comparison modal
-│       ├── engine/
-│       │   ├── UltraLightDetector.js # Linzaer 1MB RFB-320 ONNX detector & IoM NMS
-│       │   ├── ClientIoUTracker.js  # Generalized IoU + Proximity motion tracker
-│       │   ├── CropDispatcher.js    # 120px recognition gate & crop sender
-│       │   └── CanvasRenderer.js    # HUD telemetry, bounding boxes & ID card popup
-│       └── services/
-│           └── api.js              # Anti-cached API client (/api/status, /api/mode, etc.)
+├── android_clientv5/               # Native Android App (Kotlin + CameraX + LiteRT)
+│   └── app/src/main/
+│       ├── java/com/aimonk/attendance/
+│       │   ├── MainActivity.kt     # Camera pipeline, UI state, insets handling
+│       │   ├── engine/             # UltraLightDetector, IoUTracker, CropDispatcher
+│       │   ├── ui/                 # Adapters, Dialogs (Enroll, Employees, Comparison)
+│       │   └── network/ApiService.kt  # OkHttp3 + SSL-trust client
+│       └── res/                    # Layouts, drawables, themes
 │
 ├── models/
-│   ├── kprpe_adaface.onnx          # AdaFace 512-d feature extraction model
-│   ├── scrfd_2.5g_kps.onnx         # SCRFD 5-landmark alignment model
+│   ├── kprpe_adaface.onnx          # ⚠️ NOT IN REPO (167MB) — download separately
+│   ├── scrfd_2.5g_kps.onnx         # SCRFD 5-landmark detection model
 │   └── ultra_light/
-│       └── version-RFB-320.onnx    # Linzaer Ultra-Light 1MB client ONNX model
+│       └── version-RFB-320.onnx    # Client-side 1.3MB face detector
+│
+├── src/                            # Python backend
+│   ├── api/
+│   │   ├── app.py                  # FastAPI app factory & static mounts
+│   │   └── routes.py               # All REST endpoints
+│   ├── pipeline.py                 # Core recognition pipeline & state machine
+│   ├── detection/scrfd_detector.py # SCRFD ONNX landmark detector
+│   ├── recognition/kprpe_adaface.py# AdaFace GPU embedding extractor
+│   ├── search/faiss_index.py       # FAISS flat index (cosine similarity)
+│   ├── attendance/deduplication.py # Cooldown & deduplication controller
+│   ├── enrollment/enroll_service.py# Employee enrollment pipeline
+│   ├── database/                   # SQLAlchemy models + PostgreSQL/SQLite repo
+│   └── video/                      # File, Camera, RTSP video sources
 │
 ├── scripts/
-│   ├── benchmark.py                # Pipeline latency & throughput benchmark
-│   ├── build_engines.py            # TensorRT engine compilation
-│   ├── enroll_employees.py         # Batch employee photo embedding generator
-│   └── generate_architecture_report_pdf.py # Generates formal PDF technical report
+│   ├── enroll_employees.py         # Batch enroll from Employees_Photo/
+│   ├── benchmark.py                # Pipeline latency benchmark
+│   └── build_engines.py            # TensorRT engine compiler
 │
-└── src/
-    ├── api/
-    │   ├── app.py                  # FastAPI application & SPA mounting
-    │   └── routes.py               # REST API endpoints (/api/process_crop, /api/mode, etc.)
-    ├── attendance/
-    │   └── deduplication.py        # 30-second cooldown & deduplication controller
-    ├── database/
-    │   ├── models.py               # SQLAlchemy models (AttendanceEvent, Employee)
-    │   ├── repository.py           # PostgreSQL / SQLite repository layer
-    │   └── vector_store.py         # FAISS vector similarity index
-    ├── detection/
-    │   └── scrfd_detector.py       # SCRFD landmark alignment engine
-    ├── recognition/
-    │   └── adaface_recognizer.py   # AdaFace deep feature extractor
-    └── pipeline.py                 # Core recognition pipeline & state machine
+└── tests/
+    ├── test_components.py
+    └── test_live_pipeline.py
 ```
 
 ---
 
 ## 📡 REST API Reference
 
-| Endpoint | Method | Payload / Params | Description |
-| :--- | :---: | :--- | :--- |
-| `/api/status` | `GET` | None | Returns system health, total enrolled count, and active mode (`ENTRY`/`EXIT`). |
-| `/api/mode` | `GET` / `POST` | `{"mode": "ENTRY"}` | Gets or switches system mode between `ENTRY` and `EXIT` (clears cooldowns). |
-| `/api/process_crop` | `POST` | JSON (`crop_base64`, `full_frame_base64`) | Receives client face crop, extracts AdaFace embedding, runs FAISS search, logs attendance event. |
-| `/api/attendance/recent` | `GET` | `limit=50` | Returns recent attendance events with anti-cache headers. |
-| `/api/employees` | `GET` | None | Returns list of all enrolled employees with photo URLs. |
-| `/api/enroll` | `POST` | `multipart/form-data` | Enrolls a new employee (Name, ID, Department, Photo) and updates the FAISS index live. |
+| Endpoint | Method | Description |
+|---|:---:|---|
+| `/api/status` | `GET` | System health, enrolled count, present/absent/unknown, active mode |
+| `/api/mode` | `GET`/`POST` | Get or switch ENTRY/EXIT mode (clears cooldowns) |
+| `/api/process_crop` | `POST` | Receive face crop (base64 JSON), run AdaFace + FAISS, log attendance |
+| `/api/record_unknown` | `POST` | Flag an unrecognized person after 5 failed attempts |
+| `/api/attendance/recent` | `GET` | Last 500 attendance events |
+| `/api/attendance/flush` | `POST` | Clear all events and reset presence state |
+| `/api/employees` | `GET` | Full enrolled employee directory with presence indicators |
+| `/api/enroll` | `POST` | Enroll new employee (name, ID, photo) — updates FAISS index live |
+| `/api/employees/{id}` | `DELETE` | Remove employee from gallery, DB, and disk |
+| `/video_feed` | `GET` | MJPEG stream of annotated server-side video (file mode) |
+
+---
+
+## 🛠️ Management Commands
+
+```bash
+# Rebuild frontend after code changes
+npm run build
+
+# Restart recognition engine (after config/model changes)
+docker compose restart recognition_engine
+
+# View live logs
+docker compose logs -f recognition_engine
+
+# Stop everything
+docker compose down
+
+# Batch enroll employees from Employees_Photo/
+# (Photos must be named: "Firstname Lastname EMP_ID.jpg")
+PYTHONPATH=. python3 scripts/enroll_employees.py
+
+# Run pipeline latency benchmark
+PYTHONPATH=. python3 scripts/benchmark.py
+
+# Connect to PostgreSQL
+docker exec -it attendance_postgres psql -U postgres -d attendance_db
+
+# Query recent attendance
+docker exec -it attendance_postgres psql -U postgres -d attendance_db \
+  -c "SELECT employee_id, event_type, timestamp FROM attendance_events ORDER BY timestamp DESC LIMIT 20;"
+```
+
+---
+
+## 🔧 Configuration (`config/config.yaml`)
+
+Key settings to customize:
+
+```yaml
+hardware:
+  device: "cuda"          # "cuda" or "cpu"
+  precision: "fp16"       # fp16 for speed, fp32 for accuracy
+
+recognition:
+  match_threshold: 0.50   # Cosine similarity threshold (raise to reduce false positives)
+  unknown_threshold: 0.24 # Below this = UNKNOWN
+
+attendance:
+  cooldown_seconds: 5     # Seconds before a repeat entry is logged again
+
+database:
+  url: "postgresql://postgres:postgres@localhost:5432/attendance_db"
+  sqlite_fallback_url: "sqlite:///data/attendance.db"  # Used if Postgres unavailable
+```
 
 ---
 
 ## 🛡️ License & Credits
-Built for enterprise edge security and attendance monitoring. Proprietary and confidential.
+
+Built for enterprise edge security and attendance monitoring by **AI Monk**.  
+Proprietary and confidential — © 2026 ABLBL / AI Monk. All rights reserved.
