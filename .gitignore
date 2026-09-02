@@ -1,0 +1,87 @@
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+*.pth
+.pytest_cache/
+.env
+.venv/
+venv/
+env/
+
+# ── Large ML model binaries (track only ONNX sources, not compiled engines) ───
+*.engine           # TensorRT compiled engines (GPU-arch specific, must recompile)
+*.trt
+
+# Models exceeding GitHub's 100MB limit — download separately (see README)
+models/kprpe_adaface.onnx     # 167MB — AdaFace KPRPe recognition model
+
+# ── Databases & runtime data ──────────────────────────────────────────────────
+*.db
+*.sqlite
+*.sqlite3
+data/attendance.db
+data/attendance_captures/
+data/embeddings/
+data/enrollment_reports/
+n_verbose/
+
+# ── Employee media (PII — never commit) ──────────────────────────────────────
+Employees_Photo/
+Employees_Video/
+
+# ── Frontend build output & node_modules ─────────────────────────────────────
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# ── Android build artifacts ───────────────────────────────────────────────────
+android_clientv5/.gradle/
+android_clientv5/app/build/
+android_clientv5/build/
+android_clientv5/local.properties
+android_client/.gradle/
+android_client/app/build/
+android_client/build/
+android_client/local.properties
+android_clientv3/.gradle/
+android_clientv3/app/build/
+android_clientv3/build/
+android_clientv3/local.properties
+
+# ── Local Android SDK / JDK / Gradle toolchains (machine-specific) ───────────
+.android_sdk/
+.jdk17/
+.gradle_dist/
+
+# ── TFLite conversion outputs (regeneratable) ────────────────────────────────
+tflite_converted/
+
+# ── Archives & packages ───────────────────────────────────────────────────────
+*.tar.gz
+*.zip
+*.tar
+
+# ── SSL certs (secrets) ───────────────────────────────────────────────────────
+config/ssl.key
+config/ssl.crt
+config/*.pem
+
+# ── IDE & OS ──────────────────────────────────────────────────────────────────
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+logs/
