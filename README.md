@@ -2,7 +2,7 @@
 
 [![GitHub](https://img.shields.io/badge/GitHub-anas--work%2FABLBL__Attendance-blue?logo=github)](https://github.com/anas-work/ABLBL_Attendance)
 
-A production-grade, low-latency, real-time employee identification and attendance monitoring system built on a **Hybrid Edge-AI Architecture** with **NVIDIA CUDA GPU** inference, a **React 18 + Vite** web frontend, and a native **Android client** (android_clientv5).
+A production-grade, low-latency, real-time employee identification and attendance monitoring system built on a **Hybrid Edge-AI Architecture** with **NVIDIA CUDA GPU** inference, a **React 18 + Vite** web frontend, and a native **Android client** (android_clientv6).
 
 ---
 
@@ -36,7 +36,7 @@ A production-grade, low-latency, real-time employee identification and attendanc
 - `CHECK_OUT` → **Purple** box, triggered in EXIT MODE.
 - Mode switch immediately clears cooldowns for instant re-recognition.
 
-### 6. Android App (android_clientv5)
+### 6. Android App (android_clientv6)
 - Full UI parity with the web app — same stat cards, filter tabs, activity feed, enroll dialog.
 - **LiteRT 1.4.0** (Google's TFLite successor) — 16KB page-size aligned for Android 15.
 - **CameraX 1.4.0** — fixes `libimage_processing_util_jni.so` alignment.
@@ -141,7 +141,7 @@ npm run dev
 
 ---
 
-## 📱 Android App (android_clientv5)
+## 📱 Android App (android_clientv6)
 
 The Android client has full feature parity with the web app.
 
@@ -151,7 +151,7 @@ The Android client has full feature parity with the web app.
 - `minSdk = 26` (Android 8.0+)
 
 ### Setup
-1. Open `android_clientv5/` in Android Studio
+1. Open `android_clientv6/` in Android Studio
 2. Update the server IP in `app/src/main/java/com/aimonk/attendance/network/ApiService.kt`:
    ```kotlin
    private const val BASE_URL = "https://YOUR_SERVER_IP:9001/"
@@ -193,7 +193,7 @@ ABLBL_Attendance/
 │   │   └── services/api.js         # Anti-cached REST client
 │   └── vite.config.js
 │
-├── android_clientv5/               # Native Android App (Kotlin + CameraX + LiteRT)
+├── android_clientv6/               # Native Android App (Kotlin + CameraX + LiteRT)
 │   └── app/src/main/
 │       ├── java/com/aimonk/attendance/
 │       │   ├── MainActivity.kt     # Camera pipeline, UI state, insets handling

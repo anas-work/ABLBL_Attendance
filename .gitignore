@@ -42,10 +42,10 @@ frontend/dist/
 frontend/.vite/
 
 # ── Android build artifacts ───────────────────────────────────────────────────
-android_clientv5/.gradle/
-android_clientv5/app/build/
-android_clientv5/build/
-android_clientv5/local.properties
+android_clientv6/.gradle/
+android_clientv6/app/build/
+android_clientv6/build/
+android_clientv6/local.properties
 android_client/.gradle/
 android_client/app/build/
 android_client/build/

@@ -118,7 +118,7 @@ State labels shown on the bounding box:
 
 
 ================================================================================
-  4. ANDROID APP (android_clientv5)
+  4. ANDROID APP (android_clientv6)
 ================================================================================
 
 Requirements:
@@ -127,7 +127,7 @@ Requirements:
   - Physical device or emulator with camera
 
 Setup:
-  1. Open android_clientv5/ in Android Studio
+  1. Open android_clientv6/ in Android Studio
   2. Update server IP in:
        app/src/main/java/com/aimonk/attendance/network/ApiService.kt
        Change: private const val BASE_URL = "https://YOUR_SERVER_IP:9001/"
