@@ -331,4 +331,3 @@ database:
 ## 🛡️ License & Credits
 
 Built for enterprise edge security and attendance monitoring by **AI Monk**.  
-Proprietary and confidential — © 2026 ABLBL / AI Monk. All rights reserved.
