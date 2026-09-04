@@ -664,7 +664,7 @@ def start_mjpeg_server(port: int):
 def main():
     global latest_mjpeg_frame
     parser = argparse.ArgumentParser(description="AI Monk Attendance - Standalone Edge Client for EC2")
-    parser.add_argument("--video", type=str, default="Employees_Video/Live_Feed.mp4", help="Path to phone video file, RTSP URL, or 0 for webcam")
+    parser.add_argument("--video", type=str, default="0", help="Webcam index (0) or path to video file/RTSP URL")
     parser.add_argument("--server", type=str, default="https://49.206.228.75:9001", help="Remote GPU Recognition Server URL")
     parser.add_argument("--model", type=str, default="models/ultra_light/version-RFB-320.onnx", help="Path to RFB-320 ONNX model")
     parser.add_argument("--mode", type=str, default="ENTRY", choices=["ENTRY", "EXIT"], help="Operation mode (ENTRY or EXIT)")

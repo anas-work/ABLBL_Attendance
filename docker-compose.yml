@@ -26,11 +26,6 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
       - TZ=Asia/Kolkata
       - LD_LIBRARY_PATH=/usr/local/lib/python3.10/dist-packages/nvidia/cudnn/lib:/usr/local/lib/python3.10/dist-packages/nvidia/cublas/lib:/usr/local/lib/python3.10/dist-packages/nvidia/cuda_nvrtc/lib:/usr/local/cuda/lib64
-      # ── Live camera mode ────────────────────────────────────────────────
-      # Uncomment LIVE_MODE to switch from Live_Feed.mp4 to a real camera.
-      # CAMERA_DEVICE_ID selects the camera index (default 0 = /dev/video0).
-      #- LIVE_MODE=1
-      #- CAMERA_DEVICE_ID=0
     command: ["python3", "-m", "uvicorn", "src.api.app:app", "--host", "0.0.0.0", "--port", "9001", "--ssl-keyfile", "config/ssl.key", "--ssl-certfile", "config/ssl.crt"]
     ports:
       - "0.0.0.0:9001:9001"
@@ -39,7 +34,6 @@ services:
       - ./frontend:/app/frontend
       - ./scripts:/app/scripts
       - ./Employees_Photo:/app/Employees_Photo
-      - ./Employees_Video:/app/Employees_Video
       - ./data:/app/data
       - ./models:/app/models
       - ./config:/app/config
@@ -50,10 +44,6 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
-    # ── Camera device passthrough (needed for live mode) ─────────────────
-    # Uncomment the lines below when LIVE_MODE=1 is set above.
-    #devices:
-    #  - /dev/video0:/dev/video0
 
 volumes:
   pgdata:

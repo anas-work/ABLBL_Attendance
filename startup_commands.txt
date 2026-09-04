@@ -1,15 +1,15 @@
 ================================================================================
-  AI MONK ATTENDANCE SYSTEM — COMPLETE SETUP & COMMAND REFERENCE
-  Real-Time Hybrid Edge Face Recognition & Attendance Monitoring System
+  AI MONK ATTENDANCE SYSTEM — COMPLETE SERVER SETUP & COMMAND REFERENCE
+  Real-Time Face Recognition & Attendance Monitoring System (Server Edition)
   GitHub: https://github.com/anas-work/ABLBL_Attendance
 ================================================================================
 
 All commands assume you are in the project root:
-  cd /h3/anas/ABLBL_AttendanceV1   # (or /h3/anas/ABLBL_Attendance)
+  cd /h3/anas/ABLBL_AttendanceV1
 
-================================================================================
+===============================================================================
   0. FIRST-TIME SETUP (AFTER CLONING)
-================================================================================
+===============================================================================
 
 # Step 0a: Download the AdaFace model (NOT included in repo — 167MB)
 #   Place it at: models/kprpe_adaface.onnx
@@ -26,7 +26,7 @@ openssl req -x509 -newkey rsa:4096 -keyout config/ssl.key \
   -subj "/CN=attendance-server"
 
 # Step 0c: Create required data directories
-mkdir -p Employees_Photo data/attendance_captures data/embeddings
+mkdir -p Employees_Photo data/attendance_captures data/enrolled_photos data/embeddings data/enrollment_reports
 
 # Step 0d: Enroll employee photos (if starting fresh)
 #   Photo naming convention: "Firstname Lastname EMP_ID.jpg"
@@ -34,9 +34,9 @@ mkdir -p Employees_Photo data/attendance_captures data/embeddings
 PYTHONPATH=. python3 scripts/enroll_employees.py
 
 
-================================================================================
+===============================================================================
   1. QUICK START (PRODUCTION — DOCKER COMPOSE)
-================================================================================
+===============================================================================
 
 # Step 1: Build the React frontend production bundle
 npm run build
@@ -56,34 +56,13 @@ docker compose down                          # Stop all services
 docker compose up -d --build                 # Rebuild image + restart
 
 
-================================================================================
-  1B. MODAL SERVERLESS DEPLOYMENT (T4 GPU CLOUD)
-================================================================================
-
-# Step 1: Install Modal client & Authenticate with your Modal account
-pip install modal
-modal setup   # Opens browser auth OR use: modal token set --token-id ... --token-secret ...
-
-# Step 2: Test live in interactive dev mode (with hot reloading)
-modal serve modal_deploy.py
-
-# Step 3: Deploy to production (Auto-HTTPS, Persistent Volumes, T4 GPU)
-modal deploy modal_deploy.py
-
-# Step 4: Run batch employee photo enrollment on Modal (T4 GPU)
-modal run modal_deploy.py::enroll_all_employees
-
-# The deployment output provides your live HTTPS URL:
-#   https://<username>--ablbl-attendance-attendanceserver-web.modal.run
-
-
-================================================================================
+===============================================================================
   2. LOCAL DEVELOPMENT (WITHOUT DOCKER)
-================================================================================
+===============================================================================
 
 # --- Backend ---
 
-# Install Python dependencies (use a virtualenv if preferred)
+# Install Python dependencies
 pip3 install -r requirements.txt
 
 # Run backend with HTTPS (SSL needed for browser getUserMedia)
@@ -108,9 +87,9 @@ npm run dev
 npm run build
 
 
-================================================================================
+===============================================================================
   3. LIVE CAMERA MODE — HOW IT WORKS
-================================================================================
+===============================================================================
 
 1. Open https://<server-ip>:9001 in Chrome or Edge.
 2. Click "START LIVE CAPTURE" in the video panel.
@@ -123,10 +102,10 @@ Recognition flow for each detected face:
   b. 1-second "settle delay" — person must hold still before sampling starts
   c. 5 frames are sent to the server at ~600ms intervals over 3 seconds
   d. Server runs AdaFace embedding + FAISS search on each crop
-  e. First successful match → CHECK_IN (Green box) logged to DB
-  f. Subsequent appearances within cooldown → stays Green, no duplicate
-  g. After cooldown → RE_ENTRY (Orange box) logged
-  h. EXIT MODE → CHECK_OUT (Purple box) logged
+  e. First successful match -> CHECK_IN (Green box) logged to DB
+  f. Subsequent appearances within cooldown -> stays Green, no duplicate
+  g. After cooldown -> RE_ENTRY (Orange box) logged
+  h. EXIT MODE -> CHECK_OUT (Purple box) logged
 
 State labels shown on the bounding box:
   APPROACH CAMERA   — face too small (< 120px)
@@ -138,62 +117,40 @@ State labels shown on the bounding box:
   ⚠️ NOT RECOGNIZED — 5 attempts failed, unknown flagged
 
 
-================================================================================
-  4. ANDROID APP (android_clientv6)
-================================================================================
-
-Requirements:
-  - Android Studio Hedgehog or newer
-  - Android SDK 35 (target), minSdk 26 (Android 8.0+)
-  - Physical device or emulator with camera
-
-Setup:
-  1. Open android_clientv6/ in Android Studio
-  2. Update server IP in:
-       app/src/main/java/com/aimonk/attendance/network/ApiService.kt
-       Change: private const val BASE_URL = "https://YOUR_SERVER_IP:9001/"
-  3. Sync Gradle (uses LiteRT 1.4.0 + CameraX 1.4.0 — 16KB page-size aligned)
-  4. Run on device (API 26+) or emulator
-
-The app uses the same TFLite UltraLight model (version-RFB-320.tflite) bundled
-in assets/ and the same recognition logic as the web app:
-  - 1/3 frame decimation
-  - 1-second settle delay
-  - 5-frame controlled sampling at 600ms intervals
-  - Same state labels and bounding box colors
-
-
-================================================================================
-  5. EMPLOYEE ENROLLMENT
-================================================================================
+===============================================================================
+  4. EMPLOYEE ENROLLMENT & TOTAL DELETION
+===============================================================================
 
 # Option A: Via Web Dashboard (recommended)
-#   Click "ENROLL" in the top header → Fill name, ID, take/upload photo → Submit
+#   Click "ENROLL" in the top header -> Fill name, ID, snap/upload photo -> Submit
+#   When an employee is deleted from directory modal, the system purges:
+#     1. FAISS vector gallery (rebuilds and writes metadata.json & faiss_index.bin)
+#     2. Physical photo files from Employees_Photo/ and data/enrolled_photos/
+#     3. Captured attendance snapshots from data/attendance_captures/
+#     4. Relational database records (employees, enrollments, attendance, recognition)
+#     5. In-memory presence sets and cooldown trackers
 
-# Option B: Via Android App
-#   Tap "ENROLL" button → Fill name, ID, capture/pick photo → Register Employee
-
-# Option C: CLI Batch Enrollment
+# Option B: CLI Batch Enrollment
 #   1. Place all employee photos in Employees_Photo/
 #   2. Name format MUST be: "Firstname Lastname EMP_ID.jpg"
 #      Example: "Anas Aziz ABL107.jpg"
 #   3. Run:
 PYTHONPATH=. python3 scripts/enroll_employees.py
 
-# Delete an employee via API:
+# Delete an employee completely via API:
 curl -X DELETE https://localhost:9001/api/employees/ABL107 -k
 
 
-================================================================================
-  6. DATABASE MANAGEMENT (POSTGRESQL)
-================================================================================
+===============================================================================
+  5. DATABASE MANAGEMENT (POSTGRESQL & SQLITE)
+===============================================================================
 
 # Connect to PostgreSQL inside Docker:
 docker exec -it attendance_postgres psql -U postgres -d attendance_db
 
 # Query recent attendance events:
 docker exec -it attendance_postgres psql -U postgres -d attendance_db \
-  -c "SELECT employee_id, name, event_type, confidence, timestamp FROM attendance_events ORDER BY timestamp DESC LIMIT 20;"
+  -c "SELECT employee_id, event_type, timestamp FROM attendance_events ORDER BY timestamp DESC LIMIT 20;"
 
 # Count events by type:
 docker exec -it attendance_postgres psql -U postgres -d attendance_db \
@@ -207,45 +164,36 @@ curl -X POST https://localhost:9001/api/mode -k \
   -H "Content-Type: application/json" -d '{"mode": "EXIT"}'
 
 
-================================================================================
-  7. SYSTEM BENCHMARK & REPORTS
-================================================================================
+===============================================================================
+  6. SYSTEM BENCHMARK & TESTING
+===============================================================================
+
+# Run component test suite:
+pytest tests/test_components.py -v
 
 # Run full pipeline latency & FPS benchmark:
 PYTHONPATH=. python3 scripts/benchmark.py
-
-# Generate PDF Technical Architecture Report:
-python3 scripts/generate_architecture_report_pdf.py
 
 # Build TensorRT engines from ONNX (one-time, GPU-arch specific):
 PYTHONPATH=. python3 scripts/build_engines.py
 
 
-================================================================================
-  8. TROUBLESHOOTING
-================================================================================
+===============================================================================
+  7. TROUBLESHOOTING
+===============================================================================
 
 Camera doesn't start in browser:
-  → Must use HTTPS. Run with --ssl-keyfile and --ssl-certfile.
-  → On Chrome: navigate to chrome://flags and enable "Insecure origins treated as secure"
-    if using self-signed cert on LAN.
-
-Photos not loading in app:
-  → The Android app uses a custom SSL-trusting OkHttp client — should work with
-    self-signed certs automatically.
-  → Check server IP is reachable from the device (same WiFi / VPN).
+  -> Must use HTTPS. Run with --ssl-keyfile and --ssl-certfile.
+  -> On Chrome: navigate to chrome://flags and enable "Insecure origins treated as secure"
+     if using self-signed cert on LAN.
 
 AdaFace model not found (server crash on startup):
-  → Download kprpe_adaface.onnx (167MB) and place at models/kprpe_adaface.onnx
-  → The server will fail to start without this file.
-
-16KB page size warning on Android 15:
-  → App uses LiteRT 1.4.0 + CameraX 1.4.0 — these are 16KB page-aligned.
-  → If warning persists, run Clean → Rebuild in Android Studio.
+  -> Download kprpe_adaface.onnx (167MB) and place at models/kprpe_adaface.onnx
+  -> The server will fail to start without this file.
 
 TensorRT engine errors:
-  → Delete old .engine files in models/: rm models/*.engine
-  → Rebuild engines: PYTHONPATH=. python3 scripts/build_engines.py
-  → Engines are GPU-architecture specific — must recompile after hardware change.
+  -> Delete old .engine files in models/: rm models/*.engine
+  -> Rebuild engines: PYTHONPATH=. python3 scripts/build_engines.py
+  -> Engines are GPU-architecture specific — must recompile after hardware change.
 
 ================================================================================

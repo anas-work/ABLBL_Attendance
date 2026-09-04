@@ -103,12 +103,13 @@ class FAISSVectorIndex:
         if self.index.ntotal == 0 or len(self.id_map) == 0:
             return False
 
-        clean_id = employee_id.strip()
+        clean_id = str(employee_id).strip().lower()
         keep_indices = []
         new_id_map = []
 
         for idx, item in enumerate(self.id_map):
-            if item.get("employee_id") != clean_id:
+            curr_id = str(item.get("employee_id", "")).strip().lower()
+            if curr_id != clean_id:
                 keep_indices.append(idx)
                 new_id_map.append(item)
 

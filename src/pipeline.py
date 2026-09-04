@@ -7,7 +7,6 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import List, Dict, Tuple, Optional, Any, Set
 
-from src.video.base import VideoSource
 from src.detection.scrfd_detector import SCRFDDetector, FaceDetection
 from src.tracking.tracker import IoUTracker, TrackedFace
 from src.quality.quality_filter import FaceQualityFilter, QualityResult
@@ -53,7 +52,6 @@ class RecognitionPipeline:
     def __init__(
         self,
         config: Dict[str, Any],
-        video_source: Optional[VideoSource] = None,
         db_repo: Optional[AttendanceRepository] = None
     ):
         self.config = config
@@ -101,7 +99,6 @@ class RecognitionPipeline:
             db_url=config.get("database", {}).get("sqlite_fallback_url", "sqlite:///data/attendance.db")
         )
 
-        self.video_source = video_source
         self.frame_count = 0
         self.last_frame_time = time.perf_counter()
         self.smoothed_fps = 30.0
@@ -203,10 +200,8 @@ class RecognitionPipeline:
 
     def restart_stream(self) -> None:
         """
-        Restarts video stream, clears active tracker state, and resets frame counts.
+        Clears active tracker state and resets frame counts.
         """
-        if self.video_source is not None and hasattr(self.video_source, 'restart'):
-            self.video_source.restart()
         self.frame_count = 0
         if hasattr(self.tracker, 'tracks'):
             self.tracker.tracks.clear()
@@ -710,7 +705,7 @@ class RecognitionPipeline:
         # Standard filename matching existing gallery convention
         filename = f"{clean_name} {clean_emp_id}.jpg"
         
-        # 1. Save to persistent volume directory (survives all Modal restarts/redeployments)
+        # 1. Save to persistent directory (survives server container restarts)
         persisted_dir = "data/enrolled_photos"
         os.makedirs(persisted_dir, exist_ok=True)
         persistent_save_path = os.path.join(persisted_dir, filename)
@@ -1015,42 +1010,110 @@ class RecognitionPipeline:
 
     def remove_employee(self, employee_id: str) -> Dict[str, Any]:
         """
-        Removes an employee from FAISS gallery, in-memory caches, database, and deletes photo file.
+        Removes an employee completely from everywhere:
+        1. FAISS Gallery & Metadata: Removes embedding vectors and updates metadata.json + faiss_index.bin.
+        2. In-Memory Caches:
+           - Purges from employee_photos & employee_photo_paths (by id, name, filename, and variations).
+           - Purges from globally_marked_present_employees set.
+           - Purges from last_event_type map.
+           - Purges from deduplicator cooldown tracking.
+           - Resets any active tracking identities.
+        3. Physical Files on Disk:
+           - Deletes matching portrait photos from Employees_Photo/ (exact filename, matching ID pattern, name pattern).
+           - Deletes matching portrait photos from data/enrolled_photos/ (exact filename, matching ID pattern, name pattern).
+           - Deletes captured attendance snapshots from data/attendance_captures/ matching the employee ID or recorded frame paths.
+        4. Relational Database (PostgreSQL & SQLite):
+           - Deletes employee record from employees table.
+           - Deletes all enrollment records from enrollments table.
+           - Deletes all attendance events from attendance_events table.
+           - Deletes all recognition events from recognition_events table.
         """
-        clean_id = employee_id.strip()
+        clean_id = str(employee_id).strip()
         if not clean_id:
             raise ValueError("Employee ID cannot be empty.")
 
-        # Find employee metadata
-        matched_item = None
-        for item in self.gallery.get_all_employees():
-            if item.get("employee_id") == clean_id:
-                matched_item = item
-                break
+        # Find employee metadata from gallery if available
+        matched_items = [
+            item for item in self.gallery.get_all_employees()
+            if str(item.get("employee_id", "")).strip().lower() == clean_id.lower()
+        ]
+        
+        emp_name = ""
+        fname = ""
+        image_path = ""
+        if matched_items:
+            emp_name = matched_items[0].get("name", "")
+            fname = matched_items[0].get("filename", "")
+            image_path = matched_items[0].get("image_path", "")
 
-        if not matched_item:
-            raise ValueError(f"Employee with ID '{clean_id}' not found in registered gallery.")
+        # Also check DB if name not found in gallery
+        if not emp_name and self.db_repo:
+            try:
+                from sqlalchemy import or_
+                from src.database.models import EmployeeModel
+                session = self.db_repo.get_session()
+                emp_db = session.query(EmployeeModel).filter(
+                    or_(EmployeeModel.employee_id == clean_id, EmployeeModel.employee_id.ilike(clean_id))
+                ).first()
+                if emp_db:
+                    emp_name = emp_db.name
+                session.close()
+            except Exception as e:
+                print(f"[Removal] Warning checking DB for employee name: {e}")
 
-        emp_name = matched_item.get("name", "")
-        fname = matched_item.get("filename", "")
-        image_path = matched_item.get("image_path", "")
-
-        # 1. Remove from FAISS index
+        # 1. Remove from FAISS index & metadata
         self.gallery.remove_employee(clean_id)
 
-        # 2. Remove from in-memory photo cache
-        self.employee_photos.pop(clean_id, None)
-        self.employee_photo_paths.pop(clean_id, None)
+        # 2. Remove from in-memory photo caches
+        keys_to_pop = [clean_id, clean_id.lower(), clean_id.upper()]
         if fname:
-            self.employee_photos.pop(fname, None)
-            self.employee_photo_paths.pop(fname, None)
+            keys_to_pop.extend([fname, fname.lower()])
         if emp_name:
-            self.employee_photos.pop(emp_name, None)
-            self.employee_photo_paths.pop(emp_name, None)
+            keys_to_pop.extend([emp_name, emp_name.lower()])
+        for k in list(self.employee_photos.keys()):
+            k_str = str(k).strip()
+            if clean_id.lower() in k_str.lower() or (emp_name and emp_name.lower() in k_str.lower()):
+                keys_to_pop.append(k)
+        for k in set(keys_to_pop):
+            self.employee_photos.pop(k, None)
+            self.employee_photo_paths.pop(k, None)
 
-        # 3. Delete physical photo files across persistent and local directories
+        # 3. Purge in-memory presence and deduplication tracking
+        to_discard_present = [
+            p for p in self.globally_marked_present_employees
+            if clean_id.lower() in str(p).lower() or (emp_name and emp_name.lower() in str(p).lower())
+        ]
+        for p in to_discard_present:
+            self.globally_marked_present_employees.discard(p)
+
+        for k in list(self.last_event_type.keys()):
+            if clean_id.lower() in str(k).lower() or (emp_name and emp_name.lower() in str(k).lower()):
+                self.last_event_type.pop(k, None)
+
+        if hasattr(self, "deduplicator") and self.deduplicator:
+            for k in list(self.deduplicator.last_recorded.keys()):
+                if clean_id.lower() in str(k).lower() or (emp_name and emp_name.lower() in str(k).lower()):
+                    self.deduplicator.last_recorded.pop(k, None)
+
+        if hasattr(self, "track_identities"):
+            for tid, ident in list(self.track_identities.items()):
+                if clean_id.lower() in str(ident).lower():
+                    self.track_identities.pop(tid, None)
+
+        # 4. Remove from Database (deletes employees, enrollments, attendance_events, recognition_events)
+        deleted_captures = []
+        if self.db_repo:
+            db_res = self.db_repo.remove_employee(clean_id)
+            if isinstance(db_res, dict):
+                deleted_captures = db_res.get("deleted_captures", [])
+
+        # 5. Delete physical photo files across persistent and local directories
         photos_dir = self.config.get("storage", {}).get("photos_dir", "Employees_Photo")
-        for pdir in ["data/enrolled_photos", photos_dir]:
+        photo_dirs = ["data/enrolled_photos", photos_dir]
+
+        for pdir in photo_dirs:
+            if not os.path.exists(pdir):
+                continue
             if fname:
                 fpath = os.path.join(pdir, fname)
                 if os.path.exists(fpath):
@@ -1058,22 +1121,52 @@ class RecognitionPipeline:
                         os.remove(fpath)
                     except Exception as e:
                         print(f"Warning: could not delete file {fpath}: {e}")
+            # Scan directory for files containing clean_id
+            try:
+                for file_in_dir in os.listdir(pdir):
+                    f_lower = file_in_dir.lower()
+                    if clean_id.lower() in f_lower:
+                        try:
+                            os.remove(os.path.join(pdir, file_in_dir))
+                        except Exception:
+                            pass
+            except Exception as scan_err:
+                print(f"Warning scanning {pdir}: {scan_err}")
+
         if image_path and os.path.exists(image_path):
             try:
                 os.remove(image_path)
             except Exception:
                 pass
 
-        # 4. Remove from Database
-        if self.db_repo:
-            self.db_repo.remove_employee(clean_id)
+        # 6. Delete capture snapshots for this employee from data/attendance_captures
+        cap_dir = "data/attendance_captures"
+        if os.path.exists(cap_dir):
+            for cap_path in deleted_captures:
+                if cap_path:
+                    c_base = os.path.basename(cap_path)
+                    c_full = os.path.join(cap_dir, c_base)
+                    if os.path.exists(c_full):
+                        try:
+                            os.remove(c_full)
+                        except Exception:
+                            pass
+            try:
+                for cap_file in os.listdir(cap_dir):
+                    if clean_id.lower() in cap_file.lower():
+                        try:
+                            os.remove(os.path.join(cap_dir, cap_file))
+                        except Exception:
+                            pass
+            except Exception as cap_err:
+                print(f"Warning scanning {cap_dir}: {cap_err}")
 
-        print(f"[Removal] Successfully removed employee {emp_name} ({clean_id}). Total vectors in gallery: {self.gallery.total_vectors}")
+        print(f"[Removal] Successfully purged all records, files, embeddings, and caches for employee: {emp_name or clean_id} ({clean_id}). Total vectors in gallery: {self.gallery.total_vectors}")
 
         return {
             "status": "SUCCESS",
             "employee_id": clean_id,
-            "name": emp_name,
+            "name": emp_name or clean_id,
             "total_enrolled": self.gallery.total_vectors
         }
 

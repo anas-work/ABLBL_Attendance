@@ -47,8 +47,6 @@ async def serve_employee_photo(photo_path: str):
 @router.get("/api/status")
 async def get_system_status():
     pipeline = get_pipeline()
-    from src.video.camera_source import CameraVideoSource
-    is_live = isinstance(pipeline.video_source, CameraVideoSource)
     total_enrolled = pipeline.gallery.total_vectors
     present_set = pipeline.get_present_employees_set()
     present_count = len(present_set)
@@ -62,13 +60,7 @@ async def get_system_status():
             "present_count": present_count,
             "absent_count": absent_count,
             "unknown_count": unknown_count,
-            "frame_count": pipeline.frame_count,
             "active_mode": pipeline.active_mode,
-            "video_source_type": "LIVE_CAMERA" if is_live else "FILE",
-            "source": (
-                f"camera:{pipeline.video_source.device_id}" if is_live
-                else pipeline.config.get("video", {}).get("source", "Employees_Video/Live_Feed.mp4")
-            ),
         },
         headers={
             "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
@@ -161,60 +153,6 @@ async def flush_attendance_records():
             "Expires": "0"
         }
     )
-
-def mjpeg_generator(pipeline):
-    source = pipeline.video_source
-    if source is None:
-        from src.video.file_source import FileVideoSource
-        source_path = pipeline.config.get("video", {}).get("source", "Employees_Video/Live_Feed.mp4")
-        source = FileVideoSource(source_path, loop=True)
-        pipeline.video_source = source
-
-    from src.video.file_source import FileVideoSource
-    if isinstance(source, FileVideoSource):
-        if not source.running:
-            source.start()
-
-    target_fps: float = float(pipeline.config.get("video", {}).get("target_fps", 30.0))
-    min_frame_interval: float = 1.0 / max(target_fps, 1.0)
-    last_valid_annotated_frame = None
-    last_yield_time: float = 0.0
-
-    while True:
-        ret, frame = source.read()
-        if not ret or frame is None:
-            if last_valid_annotated_frame is not None:
-                frame_to_send = last_valid_annotated_frame
-            else:
-                time.sleep(0.01)
-                continue
-        else:
-            res = pipeline.process_frame(frame)
-            last_valid_annotated_frame = res.annotated_frame
-            frame_to_send = res.annotated_frame
-
-        # Enforce FPS pacing
-        now = time.perf_counter()
-        elapsed = now - last_yield_time
-        if elapsed < min_frame_interval:
-            time.sleep(min_frame_interval - elapsed)
-        last_yield_time = time.perf_counter()
-
-        # Encode annotated frame as JPEG (quality 70 for lightweight payload)
-        _, jpeg = cv2.imencode('.jpg', frame_to_send, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
-        frame_bytes = jpeg.tobytes()
-
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-
-@router.get("/video_feed")
-async def video_feed():
-    pipeline = get_pipeline()
-    return StreamingResponse(
-        mjpeg_generator(pipeline),
-        media_type="multipart/x-mixed-replace; boundary=frame"
-    )
-
 @router.post("/api/process_frame")
 async def process_browser_frame(request: Request):
     """
