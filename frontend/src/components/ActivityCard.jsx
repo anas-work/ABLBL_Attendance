@@ -1,6 +1,23 @@
 import React, { useState } from 'react';
 import { User, AlertTriangle, ShieldAlert } from 'lucide-react';
 
+function ImageWithFallback({ src, alt, className, placeholder }) {
+  const [hasError, setHasError] = useState(false);
+
+  if (!src || hasError) {
+    return placeholder;
+  }
+
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className={className}
+      onError={() => setHasError(true)}
+    />
+  );
+}
+
 export default function ActivityCard({ group, singleEvent, isGrouped = false, onSelect }) {
   // If Grouped Employee Mode (ALL FEED)
   if (isGrouped && group) {
@@ -69,18 +86,16 @@ export default function ActivityCard({ group, singleEvent, isGrouped = false, on
           {/* Left: Selected Sub-Event Capture */}
           <div className="photo-column">
             <div className="photo-frame capture-frame" style={{ border: borderStyle }}>
-              {activeRec.captured_frame_path ? (
-                <img
-                  src={activeRec.captured_frame_path}
-                  alt="Capture"
-                  className="photo-img"
-                  onError={(e) => { e.target.style.display = 'none'; }}
-                />
-              ) : (
-                <div className="photo-placeholder">
-                  {isUnknown ? <AlertTriangle size={24} color="#ef4444" /> : <User size={24} />}
-                </div>
-              )}
+              <ImageWithFallback
+                src={activeRec.captured_frame_path}
+                alt="Capture"
+                className="photo-img"
+                placeholder={
+                  <div className="photo-placeholder">
+                    {isUnknown ? <AlertTriangle size={24} color="#ef4444" /> : <User size={24} />}
+                  </div>
+                }
+              />
             </div>
             <span className="photo-label" style={{ color: badgeColor }}>{frameLabel}</span>
           </div>
@@ -88,25 +103,23 @@ export default function ActivityCard({ group, singleEvent, isGrouped = false, on
           {/* Right: Official Enrolled Photo or Unenrolled Warning */}
           <div className="photo-column">
             <div className="photo-frame enrolled-frame" style={{ border: isUnknown ? '1.5px dashed #ef4444' : '1.5px solid #3b82f6' }}>
-              {group.enrolled_photo_path ? (
-                <img
-                  src={group.enrolled_photo_path}
-                  alt="Official Enrolled"
-                  className="photo-img"
-                  onError={(e) => { e.target.style.display = 'none'; }}
-                />
-              ) : (
-                <div className="photo-placeholder" style={{ background: isUnknown ? 'rgba(239, 68, 68, 0.1)' : undefined }}>
-                  {isUnknown ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-                      <AlertTriangle size={22} color="#ef4444" />
-                      <span style={{ fontSize: 9, color: '#f87171', fontWeight: 700 }}>UNREGISTERED</span>
-                    </div>
-                  ) : (
-                    <User size={24} />
-                  )}
-                </div>
-              )}
+              <ImageWithFallback
+                src={group.enrolled_photo_path}
+                alt="Official Enrolled"
+                className="photo-img"
+                placeholder={
+                  <div className="photo-placeholder" style={{ background: isUnknown ? 'rgba(239, 68, 68, 0.1)' : undefined }}>
+                    {isUnknown ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                        <AlertTriangle size={22} color="#ef4444" />
+                        <span style={{ fontSize: 9, color: '#f87171', fontWeight: 700 }}>UNREGISTERED</span>
+                      </div>
+                    ) : (
+                      <User size={24} />
+                    )}
+                  </div>
+                }
+              />
             </div>
             <span className="photo-label" style={{ color: isUnknown ? '#f87171' : '#60a5fa' }}>
               {isUnknown ? 'NOT ENROLLED' : 'OFFICIAL PHOTO'}
@@ -166,18 +179,16 @@ export default function ActivityCard({ group, singleEvent, isGrouped = false, on
         {/* Left: Live Capture Snapshot */}
         <div className="photo-column">
           <div className="photo-frame capture-frame" style={{ border: `1.5px solid ${badgeColor}` }}>
-            {event.captured_frame_path ? (
-              <img
-                src={event.captured_frame_path}
-                alt="Capture"
-                className="photo-img"
-                onError={(e) => { e.target.style.display = 'none'; }}
-              />
-            ) : (
-              <div className="photo-placeholder">
-                {isUnknown ? <AlertTriangle size={24} color="#ef4444" /> : <User size={24} />}
-              </div>
-            )}
+            <ImageWithFallback
+              src={event.captured_frame_path}
+              alt="Capture"
+              className="photo-img"
+              placeholder={
+                <div className="photo-placeholder">
+                  {isUnknown ? <AlertTriangle size={24} color="#ef4444" /> : <User size={24} />}
+                </div>
+              }
+            />
           </div>
           <span className="photo-label" style={{ color: badgeColor }}>
             {isUnknown ? 'UNVERIFIED CAPTURE' : `${badgeLabel} CAPTURE`}
@@ -187,25 +198,23 @@ export default function ActivityCard({ group, singleEvent, isGrouped = false, on
         {/* Right: Official Enrolled Photo or Unregistered Warning */}
         <div className="photo-column">
           <div className="photo-frame enrolled-frame" style={{ border: isUnknown ? '1.5px dashed #ef4444' : '1.5px solid #3b82f6' }}>
-            {event.enrolled_photo_path ? (
-              <img
-                src={event.enrolled_photo_path}
-                alt="Official Enrolled"
-                className="photo-img"
-                onError={(e) => { e.target.style.display = 'none'; }}
-              />
-            ) : (
-              <div className="photo-placeholder" style={{ background: isUnknown ? 'rgba(239, 68, 68, 0.1)' : undefined }}>
-                {isUnknown ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-                    <AlertTriangle size={22} color="#ef4444" />
-                    <span style={{ fontSize: 9, color: '#f87171', fontWeight: 700 }}>UNREGISTERED</span>
-                  </div>
-                ) : (
-                  <User size={24} />
-                )}
-              </div>
-            )}
+            <ImageWithFallback
+              src={event.enrolled_photo_path}
+              alt="Official Enrolled"
+              className="photo-img"
+              placeholder={
+                <div className="photo-placeholder" style={{ background: isUnknown ? 'rgba(239, 68, 68, 0.1)' : undefined }}>
+                  {isUnknown ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                      <AlertTriangle size={22} color="#ef4444" />
+                      <span style={{ fontSize: 9, color: '#f87171', fontWeight: 700 }}>UNREGISTERED</span>
+                    </div>
+                  ) : (
+                    <User size={24} />
+                  )}
+                </div>
+              }
+            />
           </div>
           <span className="photo-label" style={{ color: isUnknown ? '#f87171' : '#60a5fa' }}>
             {isUnknown ? 'NOT ENROLLED' : 'OFFICIAL PHOTO'}

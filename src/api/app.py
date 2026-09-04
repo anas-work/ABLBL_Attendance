@@ -62,6 +62,13 @@ def create_app(config_path: str = "config/config.yaml") -> FastAPI:
 
     # Initialize recognition pipeline
     pipeline = RecognitionPipeline(config=config, video_source=video_source)
+
+    # Re-embed any web-enrolled employees from the persistent volume (data/enrolled_photos)
+    # that are not yet in the FAISS gallery (because startup always seeds from baked image).
+    try:
+        pipeline._restore_web_enrolled_employees()
+    except Exception as restore_err:
+        print(f"[App Init] Warning: could not restore web-enrolled employees: {restore_err}")
     
     # Clear DB events on startup for an empty activity feed
     if pipeline.db_repo:
@@ -70,8 +77,7 @@ def create_app(config_path: str = "config/config.yaml") -> FastAPI:
     routes.pipeline_instance = pipeline
     app.include_router(routes.router)
 
-    # Mount static files for dual-image display and client ONNX models
-    app.mount("/photos", StaticFiles(directory="Employees_Photo"), name="photos")
+    # Mount static files for captures and client ONNX models
     app.mount("/captures", StaticFiles(directory="data/attendance_captures"), name="captures")
     app.mount("/models", StaticFiles(directory="models"), name="models")
 

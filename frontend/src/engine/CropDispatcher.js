@@ -41,6 +41,28 @@ export class CropDispatcher {
       // If already matched with high certainty, lock and do not resend
       if (track.recognition_state === 'MATCHED') continue;
 
+      // If already marked NOT_RECOGNIZED, allow a 8-second cooldown before a new evaluation cycle
+      if (track.recognition_state === 'NOT_RECOGNIZED') {
+        if (now - (track.unknownMarkedTime || 0) > 8000) {
+          track.firstSeenAt120px = null;
+          track.evalAttempts = 0;
+          track.lastCropAttemptTime = 0;
+          track.recognition_state = 'WAITING_FOR_SIZE';
+        }
+        continue;
+      }
+
+      // If all 5 attempts finished without matching, guarantee immediate NOT_RECOGNIZED transition
+      if (track.evalAttempts >= this.maxAttempts && track.recognition_state === 'RECOGNIZING' && !track.cropInFlight) {
+        track.recognition_state = 'NOT_RECOGNIZED';
+        track.assigned_identity = 'UNKNOWN PERSON';
+        track.employee_id = 'UNKNOWN';
+        track.similarity_score = 0.0;
+        track.decision = 'UNKNOWN';
+        track.unknownMarkedTime = now;
+        continue;
+      }
+
       if (faceSize < this.minRecognitionSize) {
         track.firstSeenAt120px = null; // Reset evaluation window if person moves far away
         if (track.recognition_state !== 'NOT_RECOGNIZED') {
@@ -73,7 +95,7 @@ export class CropDispatcher {
       // Prioritize top 2 prominent faces
       if (i >= 2) continue;
 
-      // 3. Controlled Sampling: Send at most 5 frames spaced by ~600ms within the 3-second evaluation window
+      // 3. Controlled Sampling: Send at most 5 frames spaced by ~600ms within evaluation window
       const canSample = !track.cropInFlight &&
         (track.evalAttempts < this.maxAttempts) &&
         (now - (track.lastCropAttemptTime || 0) >= this.samplingIntervalMs);
@@ -101,15 +123,20 @@ export class CropDispatcher {
   }
 
   async _sendCrop(track, cropBase64, currentSystemMode, onMatch, onUnknown, dispatchTime) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
+
     try {
       const resp = await fetch('/api/process_crop', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           crop_base64: cropBase64,
           full_frame_base64: cropBase64
         })
       });
+      clearTimeout(timeoutId);
 
       if (resp.ok) {
         const data = await resp.json();
@@ -136,16 +163,17 @@ export class CropDispatcher {
             });
           }
         } else {
-          // Check if all 5 attempts have been exhausted and total evaluation time has passed
-          const totalEvalTime = performance.now() - (track.firstSeenAt120px || performance.now());
           const attempts = track.evalAttempts || 0;
 
-          if (attempts >= this.maxAttempts && totalEvalTime >= this.totalEvaluationWindowMs) {
+          // Once 5 attempts fail to match, immediately transition to NOT_RECOGNIZED
+          if (attempts >= this.maxAttempts) {
             if (track.recognition_state !== 'NOT_RECOGNIZED') {
               track.recognition_state = 'NOT_RECOGNIZED';
               track.assigned_identity = 'UNKNOWN PERSON';
               track.employee_id = 'UNKNOWN';
               track.similarity_score = 0.0;
+              track.decision = 'UNKNOWN';
+              track.unknownMarkedTime = performance.now();
 
               // Record unknown incident to backend
               fetch('/api/record_unknown', {
@@ -174,9 +202,12 @@ export class CropDispatcher {
             }
           }
         }
+      } else {
+        console.warn(`[CropDispatcher] Server returned HTTP ${resp.status}`);
       }
     } catch (err) {
-      console.warn('Process crop network error:', err);
+      clearTimeout(timeoutId);
+      console.warn('[CropDispatcher] Process crop network error or timeout:', err.name === 'AbortError' ? 'Request timed out' : err);
     } finally {
       track.cropInFlight = false;
     }

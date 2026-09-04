@@ -7,7 +7,9 @@ export default function EnrollModal({ isOpen, onClose, onEnrolled }) {
   const [employeeId, setEmployeeId] = useState('');
   const [captureMode, setCaptureMode] = useState('CAMERA'); // 'CAMERA' or 'UPLOAD'
   const [photoFile, setPhotoFile] = useState(null);
-  const [photoPreview, setPhotoPreview] = useState(null);
+  const [rawPhotoData, setRawPhotoData] = useState(null); // RAW unmirrored dataURL for server
+  const [photoPreview, setPhotoPreview] = useState(null); // Mirrored dataURL for display only
+  const [enrolledPhotoUrl, setEnrolledPhotoUrl] = useState(null); // Confirmed server photo URL
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [resultMsg, setResultMsg] = useState(null);
   const [errorMsg, setErrorMsg] = useState(null);
@@ -84,7 +86,9 @@ export default function EnrollModal({ isOpen, onClose, onEnrolled }) {
     setName('');
     setEmployeeId('');
     setPhotoFile(null);
+    setRawPhotoData(null);
     setPhotoPreview(null);
+    setEnrolledPhotoUrl(null);
     setErrorMsg(null);
     setResultMsg(null);
     setCameraError(null);
@@ -104,26 +108,37 @@ export default function EnrollModal({ isOpen, onClose, onEnrolled }) {
   };
 
   // Synchronously snap photo from live video and convert to File object
+  // IMPORTANT: The video element is CSS-mirrored for natural selfie UX,
+  // but the canvas MUST capture the RAW un-mirrored frame — same orientation
+  // as the live recognition camera feed — so the stored embedding matches.
   const handleSnapPhoto = () => {
     if (!videoRef.current) return;
     const video = videoRef.current;
     const w = video.videoWidth || 640;
     const h = video.videoHeight || 480;
 
+    // Draw WITHOUT mirroring — raw natural orientation for embedding consistency
     const canvas = document.createElement('canvas');
     canvas.width = w;
     canvas.height = h;
     const ctx = canvas.getContext('2d');
-    
-    // Draw mirrored video stream correctly to canvas
-    ctx.translate(w, 0);
-    ctx.scale(-1, 1);
     ctx.drawImage(video, 0, 0, w, h);
 
     const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
-    setPhotoPreview(dataUrl);
+    setRawPhotoData(dataUrl); // RAW unmirrored — this is what gets sent to server
 
-    // Convert dataURL to Blob & File synchronously
+    // For preview only: create a second mirrored canvas so the frozen
+    // preview looks like a natural selfie mirror to the user
+    const previewCanvas = document.createElement('canvas');
+    previewCanvas.width = w;
+    previewCanvas.height = h;
+    const pCtx = previewCanvas.getContext('2d');
+    pCtx.translate(w, 0);
+    pCtx.scale(-1, 1);
+    pCtx.drawImage(video, 0, 0, w, h);
+    setPhotoPreview(previewCanvas.toDataURL('image/jpeg', 0.95));
+
+    // The File sent to the server uses the RAW (un-mirrored) frame
     try {
       const arr = dataUrl.split(',');
       const mime = arr[0].match(/:(.*?);/)[1];
@@ -146,7 +161,9 @@ export default function EnrollModal({ isOpen, onClose, onEnrolled }) {
 
   const handleRetake = () => {
     setPhotoFile(null);
+    setRawPhotoData(null);
     setPhotoPreview(null);
+    setEnrolledPhotoUrl(null);
     if (captureMode === 'CAMERA') {
       startCamera();
     }
@@ -174,9 +191,10 @@ export default function EnrollModal({ isOpen, onClose, onEnrolled }) {
 
     try {
       let finalFile = photoFile;
-      // Fallback: If for any reason photoFile wasn't created but photoPreview dataURL exists
-      if (!finalFile && photoPreview) {
-        const arr = photoPreview.split(',');
+      // Fallback: If photoFile wasn't created, use rawPhotoData (RAW unmirrored bytes)
+      // NEVER fall back to photoPreview — that is the mirrored display-only canvas
+      if (!finalFile && rawPhotoData) {
+        const arr = rawPhotoData.split(',');
         const mime = arr[0].match(/:(.*?);/)[1];
         const bstr = atob(arr[1]);
         let n = bstr.length;
@@ -188,6 +206,12 @@ export default function EnrollModal({ isOpen, onClose, onEnrolled }) {
         finalFile = new File([blob], `enroll_${cleanId}_${Date.now()}.jpg`, { type: 'image/jpeg' });
       }
 
+      if (!finalFile) {
+        setIsSubmitting(false);
+        setErrorMsg('Could not prepare photo for upload. Please retake.');
+        return;
+      }
+
       const formData = new FormData();
       formData.append('name', cleanName);
       formData.append('employee_id', cleanId);
@@ -195,13 +219,21 @@ export default function EnrollModal({ isOpen, onClose, onEnrolled }) {
 
       const res = await enrollEmployee(formData);
       setIsSubmitting(false);
-      setResultMsg(`Successfully enrolled ${res.name} (${res.employee_id})!`);
+
+      // Show the server-confirmed photo URL so user can immediately verify
+      // their own face was saved correctly — not someone else's
+      const confirmedUrl = res.photo_url
+        ? `${res.photo_url}?t=${Date.now()}`
+        : null;
+      setEnrolledPhotoUrl(confirmedUrl);
+      setResultMsg(`✅ Enrolled: ${res.name} (${res.employee_id})`);
 
       if (onEnrolled) onEnrolled();
 
+      // Give user time to see their confirmed photo before closing
       setTimeout(() => {
         handleClose();
-      }, 1200);
+      }, 3000);
     } catch (err) {
       setIsSubmitting(false);
       setErrorMsg(err.message || 'Failed to enroll employee.');
@@ -233,9 +265,28 @@ export default function EnrollModal({ isOpen, onClose, onEnrolled }) {
             )}
 
             {resultMsg && (
-              <div className="alert-banner alert-success">
-                <CheckCircle2 size={16} />
-                <span>{resultMsg}</span>
+              <div style={{ textAlign: 'center', padding: '12px 0' }}>
+                <div className="alert-banner alert-success" style={{ marginBottom: '12px' }}>
+                  <CheckCircle2 size={16} />
+                  <span>{resultMsg}</span>
+                </div>
+                {enrolledPhotoUrl && (
+                  <div style={{ display: 'inline-block' }}>
+                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px' }}>
+                      ✔ Stored reference photo (verify it's your face):
+                    </p>
+                    <img
+                      src={enrolledPhotoUrl}
+                      alt="Your enrolled reference photo"
+                      style={{
+                        width: 120, height: 120, borderRadius: '50%',
+                        objectFit: 'cover', border: '3px solid var(--success)',
+                        display: 'block', margin: '0 auto'
+                      }}
+                      onError={(e) => { e.target.style.display = 'none'; }}
+                    />
+                  </div>
+                )}
               </div>
             )}
 
