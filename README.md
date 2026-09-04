@@ -315,8 +315,8 @@ hardware:
   precision: "fp16"       # fp16 for speed, fp32 for accuracy
 
 recognition:
-  match_threshold: 0.50   # Cosine similarity threshold (raise to reduce false positives)
-  unknown_threshold: 0.24 # Below this = UNKNOWN
+  match_threshold: 0.53   # Cosine similarity threshold (raise to reduce false positives)
+  unknown_threshold: 0.35 # Below this = UNKNOWN
 
 attendance:
   cooldown_seconds: 5     # Seconds before a repeat entry is logged again
