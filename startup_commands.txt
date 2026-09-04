@@ -57,6 +57,27 @@ docker compose up -d --build                 # Rebuild image + restart
 
 
 ================================================================================
+  1B. MODAL SERVERLESS DEPLOYMENT (T4 GPU CLOUD)
+================================================================================
+
+# Step 1: Install Modal client & Authenticate with your Modal account
+pip install modal
+modal setup   # Opens browser auth OR use: modal token set --token-id ... --token-secret ...
+
+# Step 2: Test live in interactive dev mode (with hot reloading)
+modal serve modal_deploy.py
+
+# Step 3: Deploy to production (Auto-HTTPS, Persistent Volumes, T4 GPU)
+modal deploy modal_deploy.py
+
+# Step 4: Run batch employee photo enrollment on Modal (T4 GPU)
+modal run modal_deploy.py::enroll_all_employees
+
+# The deployment output provides your live HTTPS URL:
+#   https://<username>--ablbl-attendance-attendanceserver-web.modal.run
+
+
+================================================================================
   2. LOCAL DEVELOPMENT (WITHOUT DOCKER)
 ================================================================================
 

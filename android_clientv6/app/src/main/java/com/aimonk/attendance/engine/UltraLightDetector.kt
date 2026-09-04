@@ -31,6 +31,13 @@ class UltraLightDetector(
     private val inputBuffer: ByteBuffer
     private val intValues = IntArray(width * height)
 
+    // Pre-allocated scaling Canvas and Bitmap to avoid per-frame GC allocations
+    private val scaledBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    private val scaleCanvas = android.graphics.Canvas(scaledBitmap)
+    private val scalePaint = android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG)
+    private val srcRect = android.graphics.Rect()
+    private val dstRect = android.graphics.Rect(0, 0, width, height)
+
     // Pre-allocated output arrays (Zero Garbage Collection during live 60 FPS loop)
     private val outputScores = Array(1) { Array(4420) { FloatArray(2) } }
     private val outputBoxes = Array(1) { Array(4420) { FloatArray(4) } }
@@ -101,8 +108,9 @@ class UltraLightDetector(
 
     @Synchronized
     fun detect(bitmap: Bitmap, originalWidth: Int, originalHeight: Int): List<Detection> {
-        val resized = Bitmap.createScaledBitmap(bitmap, width, height, false)
-        resized.getPixels(intValues, 0, width, 0, 0, width, height)
+        srcRect.set(0, 0, bitmap.width, bitmap.height)
+        scaleCanvas.drawBitmap(bitmap, srcRect, dstRect, scalePaint)
+        scaledBitmap.getPixels(intValues, 0, width, 0, 0, width, height)
 
         inputBuffer.rewind()
 

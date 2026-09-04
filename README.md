@@ -97,7 +97,7 @@ npm run build
 # Output goes to: frontend/dist/
 ```
 
-### Step 3: Run via Docker Compose (Recommended)
+### Step 3: Run via Docker Compose (Option A — Local/On-Prem GPU)
 
 ```bash
 # Start PostgreSQL + Recognition Engine (GPU accelerated, HTTPS on port 9001)
@@ -111,6 +111,29 @@ docker compose logs -f recognition_engine
 # https://<your-server-ip>:9001
 # (Accept the one-time self-signed SSL warning on first load)
 ```
+
+---
+
+### Step 3 (Alternative): Serverless Deployment to Modal (Option B — Cloud T4 GPU)
+
+Deploy the full server with NVIDIA T4 GPU and persistent storage volumes to **[Modal](https://modal.com/)**:
+
+```bash
+# 1. Install Modal & Authenticate
+pip install modal
+modal setup   # or: modal token set --token-id ... --token-secret ...
+
+# 2. Test locally / live dev mode
+modal serve modal_deploy.py
+
+# 3. Deploy to production (Auto-HTTPS, Persistent Volumes, T4 GPU)
+modal deploy modal_deploy.py
+
+# Optional: Run batch employee photo enrollment on Modal
+modal run modal_deploy.py::enroll_all_employees
+```
+
+Once deployed, Modal gives you a permanent HTTPS URL (e.g., `https://<username>--ablbl-attendance-attendanceserver-web.modal.run`).
 
 ---
 

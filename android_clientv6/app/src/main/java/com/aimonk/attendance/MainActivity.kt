@@ -22,11 +22,16 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import coil.ImageLoader
 import coil.request.CachePolicy
-import com.aimonk.attendance.databinding.ActivityMainBinding
+import android.hardware.camera2.CaptureRequest
+import android.util.Range
+import android.view.Choreographer
+import androidx.camera.camera2.interop.Camera2Interop
+import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import com.aimonk.attendance.engine.CropDispatcher
 import com.aimonk.attendance.engine.IoUTracker
 import com.aimonk.attendance.engine.UltraLightDetector
 import com.aimonk.attendance.model.AttendanceRecord
+import com.aimonk.attendance.model.Track
 import com.aimonk.attendance.network.ApiService
 import com.aimonk.attendance.ui.ActivityFeedAdapter
 import com.aimonk.attendance.ui.ComparisonDetailDialog
@@ -57,6 +62,32 @@ class MainActivity : AppCompatActivity() {
     private var frameDecimationCounter = 0
     private var lastFpsTimestamp = System.currentTimeMillis()
     private var pollingJob: Job? = null
+
+    // Decoupled 60 FPS VSYNC Loop (matches web app's requestAnimationFrame)
+    private var isRenderLoopRunning = false
+    private var cameraFrameWidth = 1280
+    private var cameraFrameHeight = 720
+    private var isAnalysisBusy = false
+
+    private val renderLoopCallback = object : Choreographer.FrameCallback {
+        override fun doFrame(frameTimeNanos: Long) {
+            val now = System.currentTimeMillis()
+            frameCounter++
+            if (now - lastFpsTimestamp >= 1000L) {
+                binding.overlayView.telemetry.fps = (frameCounter * 1000f) / (now - lastFpsTimestamp)
+                frameCounter = 0
+                lastFpsTimestamp = now
+            }
+
+            // Smooth 60 FPS motion extrapolation on every display tick
+            val interpolatedTracks = tracker.extrapolateMotion()
+            binding.overlayView.setTracks(interpolatedTracks, cameraFrameWidth, cameraFrameHeight)
+
+            if (isRenderLoopRunning) {
+                Choreographer.getInstance().postFrameCallback(this)
+            }
+        }
+    }
 
     companion object {
         private const val REQUEST_CODE_PERMISSIONS = 101
@@ -291,55 +322,64 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    @androidx.annotation.OptIn(ExperimentalCamera2Interop::class)
     private fun startCamera() {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
         cameraProviderFuture.addListener({
             val cameraProvider = cameraProviderFuture.get()
 
-            val preview = Preview.Builder().build().also {
+            // 1. Preview configured with Camera2 high-speed target FPS
+            val preview = Preview.Builder().also { builder ->
+                Camera2Interop.Extender(builder).setCaptureRequestOption(
+                    CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE,
+                    Range(30, 60)
+                )
+            }.build().also {
                 it.setSurfaceProvider(binding.previewView.surfaceProvider)
             }
 
+            // 2. ImageAnalysis configured with Camera2 high-speed target FPS
             val imageAnalysis = ImageAnalysis.Builder()
                 .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .also { builder ->
+                    Camera2Interop.Extender(builder).setCaptureRequestOption(
+                        CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE,
+                        Range(30, 60)
+                    )
+                }
                 .build()
 
             imageAnalysis.setAnalyzer(cameraExecutor) { imageProxy ->
                 val tStart = System.currentTimeMillis()
-                val bitmap: Bitmap? = runCatching { imageProxy.toBitmap() }.getOrNull()
+                cameraFrameWidth = imageProxy.width
+                cameraFrameHeight = imageProxy.height
 
-                if (bitmap != null) {
-                    latestCameraBitmap = bitmap
+                if (!isAnalysisBusy) {
+                    isAnalysisBusy = true
+                    val bitmap: Bitmap? = runCatching { imageProxy.toBitmap() }.getOrNull()
 
-                    // 1/3 Temporal Decimation
-                    frameDecimationCounter = (frameDecimationCounter + 1) % 3
-                    val isRealKeyframe = (frameDecimationCounter == 0)
+                    if (bitmap != null) {
+                        latestCameraBitmap = bitmap
 
-                    val activeTracks = if (isRealKeyframe) {
-                        val tDetStart = System.currentTimeMillis()
-                        val dets = detector.detect(bitmap, imageProxy.width, imageProxy.height)
-                        binding.overlayView.telemetry.detectMs = (System.currentTimeMillis() - tDetStart).toFloat()
+                        // 1/3 Temporal Decimation (matching web app)
+                        frameDecimationCounter = (frameDecimationCounter + 1) % 3
+                        val isRealKeyframe = (frameDecimationCounter == 0)
 
-                        val tTrackStart = System.currentTimeMillis()
-                        val tracks = tracker.update(dets)
-                        binding.overlayView.telemetry.trackMs = (System.currentTimeMillis() - tTrackStart).toFloat()
+                        if (isRealKeyframe) {
+                            val tDetStart = System.currentTimeMillis()
+                            val dets = detector.detect(bitmap, imageProxy.width, imageProxy.height)
+                            binding.overlayView.telemetry.detectMs = (System.currentTimeMillis() - tDetStart).toFloat()
 
-                        dispatcher.evaluateAndDispatch(bitmap, tracks, currentSystemMode)
-                        tracks
-                    } else {
-                        tracker.extrapolateMotion()
+                            val tTrackStart = System.currentTimeMillis()
+                            val activeTracks = tracker.update(dets)
+                            binding.overlayView.telemetry.trackMs = (System.currentTimeMillis() - tTrackStart).toFloat()
+
+                            dispatcher.evaluateAndDispatch(bitmap, activeTracks, currentSystemMode)
+                        }
+                        binding.overlayView.telemetry.e2eMs = (System.currentTimeMillis() - tStart).toFloat()
                     }
-
-                    frameCounter++
-                    val now = System.currentTimeMillis()
-                    if (now - lastFpsTimestamp >= 1000L) {
-                        binding.overlayView.telemetry.fps = (frameCounter * 1000f) / (now - lastFpsTimestamp)
-                        frameCounter = 0
-                        lastFpsTimestamp = now
-                    }
-                    binding.overlayView.telemetry.e2eMs = (System.currentTimeMillis() - tStart).toFloat()
-                    binding.overlayView.setTracks(activeTracks, imageProxy.width, imageProxy.height)
+                    isAnalysisBusy = false
                 }
                 imageProxy.close()
             }
@@ -352,6 +392,20 @@ class MainActivity : AppCompatActivity() {
             }
 
         }, ContextCompat.getMainExecutor(this))
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (!isRenderLoopRunning) {
+            isRenderLoopRunning = true
+            Choreographer.getInstance().postFrameCallback(renderLoopCallback)
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        isRenderLoopRunning = false
+        Choreographer.getInstance().removeFrameCallback(renderLoopCallback)
     }
 
     private fun allPermissionsGranted() = REQUIRED_PERMISSIONS.all {
@@ -371,6 +425,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        isRenderLoopRunning = false
+        Choreographer.getInstance().removeFrameCallback(renderLoopCallback)
         pollingJob?.cancel()
         detector.close()
         cameraExecutor.shutdown()
