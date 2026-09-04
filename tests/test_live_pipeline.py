@@ -9,8 +9,8 @@ def test_pipeline():
     with open("config/config.yaml", "r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
 
-    # Disable loop for testing single pass over 100 frames
-    source = FileVideoSource("Employees_Video/reference_video.mp4", loop=False)
+    video_path = config.get("video", {}).get("source", "Employees_Video/Live_Feed.mp4")
+    source = FileVideoSource(video_path, loop=False)
     pipeline = RecognitionPipeline(config=config, video_source=source)
 
     print("\n--- RUNNING RECOGNITION PIPELINE ON SIMULATED LIVE STREAM ---")

@@ -35,6 +35,7 @@ class FileVideoSource(VideoSource):
             "Employees_Video/Live_Feed.mp4",
             "Employee_Video/Live_Feed.mp4",
             "/h3/anas/Employee_Video/Live_Feed.mp4",
+            "/h3/anas/ABLBL_AttendanceV1/Employees_Video/Live_Feed.mp4",
             "/h3/anas/ABLBL_Attendance/Employees_Video/Live_Feed.mp4"
         ]
 

@@ -5,7 +5,7 @@
 ================================================================================
 
 All commands assume you are in the project root:
-  cd /h3/anas/ABLBL_Attendance
+  cd /h3/anas/ABLBL_AttendanceV1   # (or /h3/anas/ABLBL_Attendance)
 
 ================================================================================
   0. FIRST-TIME SETUP (AFTER CLONING)
